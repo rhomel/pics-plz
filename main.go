@@ -32,8 +32,7 @@ type server struct {
 }
 
 func (s *server) isAllowed(target string) bool {
-	ext := strings.ToUpper(filepath.Ext(target))
-	switch ext {
+	switch extension(target) {
 	case ".GIF":
 		return true
 	case ".PNG":
@@ -52,8 +51,7 @@ func (s *server) isAllowed(target string) bool {
 }
 
 func (s *server) contentType(target string) string {
-	ext := strings.ToUpper(filepath.Ext(target))
-	switch ext {
+	switch extension(target) {
 	case ".GIF":
 		return "image/gif"
 	case ".PNG":
@@ -70,7 +68,7 @@ func (s *server) contentType(target string) string {
 }
 
 func (s *server) shouldConvert(target string) bool {
-	return strings.ToUpper(filepath.Ext(target)) == ".HEIC"
+	return extension(target) == ".HEIC"
 }
 
 func (s *server) ServeHTTP(response http.ResponseWriter, request *http.Request) {
@@ -182,4 +180,8 @@ func convert(source string, targetExtension string) string {
 func exists(target string) bool {
 	_, err := os.Stat(target)
 	return !errors.Is(err, os.ErrNotExist)
+}
+
+func extension(target string) string {
+	return strings.ToUpper(filepath.Ext(target))
 }
