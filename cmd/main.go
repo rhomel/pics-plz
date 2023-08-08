@@ -22,18 +22,57 @@ func main() {
 		os.Exit(1)
 	}
 	sourcePath := os.Args[1]
-	serve(sourcePath)
+	s := NewServer(sourcePath)
+	s.Serve()
 }
 
 type server struct {
-	root string
+	root       string
+	deps       deps.Deps
+	httpServer *http.Server
+}
 
-	deps deps.Deps
+func NewServer(localRoot string) *server {
+	root, err := filepath.Abs(localRoot)
+	if err != nil {
+		log.Fatalf("%s failed to resolve to an absolute path: %v", localRoot, err)
+	}
+	s := &server{
+		root: root,
+		deps: deps.Defaults(),
+	}
+	s.httpServer = &http.Server{
+		Handler:        s,
+		Addr:           ":8080",
+		ReadTimeout:    60 * time.Second,
+		WriteTimeout:   60 * time.Second,
+		MaxHeaderBytes: 1 << 20, // 1MB
+	}
+	return s
+}
+
+func (s *server) Serve() {
+	idleConnsClosed := make(chan struct{})
+	go func() {
+		c := make(chan os.Signal, 1)
+		signal.Notify(c, os.Interrupt, os.Kill)
+		<-c
+		if err := s.httpServer.Shutdown(context.Background()); err != nil {
+			s.logf("shutdown failed: %v", err)
+		}
+		close(idleConnsClosed)
+	}()
+	s.logf("http://localhost%s\n", s.httpServer.Addr)
+	if err := s.httpServer.ListenAndServe(); err != nil {
+		s.logf(err.Error())
+	}
+	<-idleConnsClosed
+	s.logf("shutdown")
 }
 
 func (s *server) ServeHTTP(response http.ResponseWriter, request *http.Request) {
 	target := filepath.Join(s.root, request.URL.Path)
-	log.Println(request.Method, request.URL.Path, target)
+	s.deps.Logger().Println(request.Method, request.URL.Path, target)
 	if request.Method == "GET" {
 		s.ServeImage(response, request, target)
 		return
@@ -91,38 +130,4 @@ func (s *server) logf(fmt string, v ...any) {
 
 func (s *server) errorf(fmt string, v ...any) {
 	s.deps.Logger().Printf("[ERROR] "+fmt, v...)
-}
-
-func serve(localRoot string) {
-	root, err := filepath.Abs(localRoot)
-	if err != nil {
-		log.Fatalf("%s failed to resolve to an absolute path: %v", localRoot, err)
-	}
-	s := &server{
-		root: root,
-		deps: deps.Defaults(),
-	}
-	httpServer := &http.Server{
-		Handler:        s,
-		Addr:           ":8080",
-		ReadTimeout:    10 * time.Second,
-		WriteTimeout:   10 * time.Second,
-		MaxHeaderBytes: 1 << 20, // 1MB
-	}
-	idleConnsClosed := make(chan struct{})
-	go func() {
-		c := make(chan os.Signal, 1)
-		signal.Notify(c, os.Interrupt, os.Kill)
-		<-c
-		if err := httpServer.Shutdown(context.Background()); err != nil {
-			log.Println("shutdown failed:", err)
-		}
-		close(idleConnsClosed)
-	}()
-	log.Printf("http://localhost%s\n", httpServer.Addr)
-	if err := httpServer.ListenAndServe(); err != nil {
-		log.Println(err)
-	}
-	<-idleConnsClosed
-	log.Println("shutdown")
 }
