@@ -2,7 +2,6 @@ package resources
 
 import (
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -76,7 +75,6 @@ func (i *Image) prepareConvertedPath(config *config.Config) error {
 		return nil
 	}
 	dirname := filepath.Dir(filename)
-	fmt.Println("dirname:", dirname)
 	if file.Exists(dirname) && !file.IsDirectory(dirname) {
 		// the cache is invalid? so remove the directory and create a new one
 		if err := os.Remove(dirname); err != nil {
@@ -122,7 +120,7 @@ func (i *Image) getServableResourcePath() string {
 	if i.IsConverted() {
 		return i.convertedPath
 	}
-	return i.requestedPath
+	return i.requestedAbsPath
 }
 
 func (i *Image) GetRequestedPath() string {

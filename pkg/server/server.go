@@ -18,15 +18,17 @@ import (
 )
 
 const (
-	DefaultImagePathPrefix = "/images"
+	DefaultImagePathPrefix  = "/images"
+	DefaultBrowsePathPrefix = "/browse"
 )
 
 type server struct {
 	deps       deps.Deps
 	httpServer *http.Server
+	browser    *browser
 
-	imagePathPrefix           string
-	imageConverterCachePrefix string
+	imagePathPrefix  string
+	browsePathPrefix string
 }
 
 func New(imageRoot string) (*server, error) {
@@ -42,9 +44,11 @@ func New(imageRoot string) (*server, error) {
 	}
 	defaults.Config().ImageRoot = root
 	s := &server{
-		deps:            defaults,
-		imagePathPrefix: DefaultImagePathPrefix,
+		deps:             defaults,
+		imagePathPrefix:  DefaultImagePathPrefix,
+		browsePathPrefix: DefaultBrowsePathPrefix,
 	}
+	s.browser = NewBrowser(s.deps.Logger(), root, s.imagePathPrefix, s.browsePathPrefix)
 	s.httpServer = &http.Server{
 		Handler:        s,
 		Addr:           ":8080",
@@ -87,6 +91,11 @@ func (s *server) getImagesSubPath(request *http.Request) (string, bool) {
 
 func (s *server) ServeHTTP(response http.ResponseWriter, request *http.Request) {
 	s.deps.Logger().Println(request.Method, request.URL.Path)
+	if request.Method == "GET" && strings.HasPrefix(request.URL.Path, s.browsePathPrefix) {
+		path, _ := strings.CutPrefix(request.URL.Path, s.browsePathPrefix)
+		s.browser.Browse(response, path)
+		return
+	}
 	if imagePath, ok := s.getImagesSubPath(request); ok {
 		s.ServeImage(response, request, imagePath)
 		return
