@@ -14,6 +14,6 @@ sudo apt-get install libmagickwand-dev
 ## Running
 
 ```
-go run main.go ./samples
+go run cmd/main.go ./samples
 ```
 
