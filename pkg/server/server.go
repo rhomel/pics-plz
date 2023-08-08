@@ -10,26 +10,40 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/rhomel/pics-plz/pkg/deps"
 	"github.com/rhomel/pics-plz/pkg/resources"
 )
 
+const (
+	DefaultImagePathPrefix = "/images"
+)
+
 type server struct {
-	root       string
 	deps       deps.Deps
 	httpServer *http.Server
+
+	imagePathPrefix           string
+	imageConverterCachePrefix string
 }
 
-func New(localRoot string) *server {
-	root, err := filepath.Abs(localRoot)
+func New(imageRoot string) (*server, error) {
+	root, err := filepath.Abs(imageRoot)
 	if err != nil {
-		log.Fatalf("%s failed to resolve to an absolute path: %v", localRoot, err)
+		log.Printf("%s failed to resolve to an absolute path: %v", imageRoot, err)
+		return nil, err
 	}
+	defaults, err := deps.Defaults()
+	if err != nil {
+		log.Printf("failed to configure dependencies: %v", err)
+		return nil, err
+	}
+	defaults.Config().ImageRoot = root
 	s := &server{
-		root: root,
-		deps: deps.Defaults(),
+		deps:            defaults,
+		imagePathPrefix: DefaultImagePathPrefix,
 	}
 	s.httpServer = &http.Server{
 		Handler:        s,
@@ -38,7 +52,7 @@ func New(localRoot string) *server {
 		WriteTimeout:   60 * time.Second,
 		MaxHeaderBytes: 1 << 20, // 1MB
 	}
-	return s
+	return s, nil
 }
 
 func (s *server) Serve() {
@@ -60,11 +74,21 @@ func (s *server) Serve() {
 	s.logf("shutdown")
 }
 
+func (s *server) getImagesSubPath(request *http.Request) (string, bool) {
+	if request.Method != "GET" {
+		return "", false
+	}
+	path, ok := strings.CutPrefix(request.URL.Path, s.imagePathPrefix)
+	if !ok {
+		return "", false
+	}
+	return path, true
+}
+
 func (s *server) ServeHTTP(response http.ResponseWriter, request *http.Request) {
-	target := filepath.Join(s.root, request.URL.Path)
-	s.deps.Logger().Println(request.Method, request.URL.Path, target)
-	if request.Method == "GET" {
-		s.ServeImage(response, request, target)
+	s.deps.Logger().Println(request.Method, request.URL.Path)
+	if imagePath, ok := s.getImagesSubPath(request); ok {
+		s.ServeImage(response, request, imagePath)
 		return
 	}
 	response.WriteHeader(http.StatusBadRequest)
@@ -83,7 +107,8 @@ func (s *server) ServeError(response http.ResponseWriter, code int, err error) {
 }
 
 func (s *server) ServeImage(response http.ResponseWriter, request *http.Request, target string) {
-	image, err := resources.NewImage(target, s.deps.Converter())
+	s.logf("requested image: %s", target)
+	image, err := resources.NewImage(target, s.deps.Converter(), s.deps.Config())
 	if errors.Is(err, resources.NotFound) {
 		s.ServeError(response, http.StatusNotFound, err)
 		return

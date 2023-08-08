@@ -13,6 +13,10 @@ func main() {
 		os.Exit(1)
 	}
 	sourcePath := os.Args[1]
-	s := server.New(sourcePath)
+	s, err := server.New(sourcePath)
+	if err != nil {
+		fmt.Printf("failed to initialize the server: %v", err)
+		os.Exit(2)
+	}
 	s.Serve()
 }

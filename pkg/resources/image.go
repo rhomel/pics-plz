@@ -2,7 +2,12 @@ package resources
 
 import (
 	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 
+	"github.com/rhomel/pics-plz/pkg/config"
 	"github.com/rhomel/pics-plz/pkg/file"
 )
 
@@ -25,36 +30,76 @@ func conversionMap(extension string) string {
 }
 
 type Converter interface {
-	Convert(sourcePath string, newTargetExtension string) string
+	Convert(sourcePath string, newTargetExtension string) error
 }
 
 type Image struct {
-	requestedPath string
-	convertedPath string
-	isConverted   bool
+	requestedPath    string
+	requestedAbsPath string
+	convertedPath    string
+	isConverted      bool
 }
 
-func NewImage(requestedPath string, converter Converter) (*Image, error) {
-	if !file.Exists(requestedPath) {
+func NewImage(requestedPath string, converter Converter, config *config.Config) (*Image, error) {
+	i := &Image{
+		requestedPath:    requestedPath,
+		requestedAbsPath: filepath.Join(config.ImageRoot, requestedPath),
+		isConverted:      false,
+	}
+	if !file.Exists(i.requestedAbsPath) {
 		return nil, NotFound
 	}
-	if !IsAllowed(requestedPath) {
+	if !IsAllowed(i.requestedAbsPath) {
 		return nil, NotAllowed
 	}
-	i := &Image{
-		requestedPath: requestedPath,
-		isConverted:   false,
-	}
 	if shouldConvert(i.RequestedExtension()) {
-		i.convert(converter)
+		if err := i.prepareConvertedPath(config); err != nil {
+			return nil, err
+		}
+		if !i.isConverted {
+			if err := i.convert(converter); err != nil {
+				return nil, err
+			}
+		}
 	}
 	return i, nil
 }
 
-func (i *Image) convert(converter Converter) {
+func (i *Image) prepareConvertedPath(config *config.Config) error {
 	conversionExtension := conversionMap(i.RequestedExtension())
-	i.convertedPath = converter.Convert(i.requestedPath, conversionExtension)
+	// replace the extension
+	filename := strings.TrimSuffix(i.requestedPath, filepath.Ext(i.requestedPath)) + "." + conversionExtension
+	filename = filepath.Join(config.ConvertedImageCachePath, filename)
+	if file.Exists(filename) && !file.IsDirectory(filename) {
+		i.convertedPath = filename
+		i.isConverted = true
+		return nil
+	}
+	dirname := filepath.Dir(filename)
+	fmt.Println("dirname:", dirname)
+	if file.Exists(dirname) && !file.IsDirectory(dirname) {
+		// the cache is invalid? so remove the directory and create a new one
+		if err := os.Remove(dirname); err != nil {
+			return err
+		}
+	}
+	if !file.Exists(dirname) {
+		if err := os.MkdirAll(dirname, os.ModePerm); err != nil {
+			return err
+		}
+		// cache directory should now exist
+	}
+	i.convertedPath = filename
+	return nil
+}
+
+func (i *Image) convert(converter Converter) error {
+	err := converter.Convert(i.requestedAbsPath, i.convertedPath)
+	if err != nil {
+		return err
+	}
 	i.isConverted = true
+	return nil
 }
 
 func (i *Image) RequestedExtension() string {

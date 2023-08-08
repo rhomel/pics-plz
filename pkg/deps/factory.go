@@ -3,24 +3,36 @@ package deps
 import (
 	"log"
 
+	"github.com/rhomel/pics-plz/pkg/config"
 	"github.com/rhomel/pics-plz/pkg/converter"
 )
 
 type Deps interface {
 	LoggerProvider
 	ConverterProvider
+	ConfigProvider
 }
 
-func Defaults() *DefaultProvider {
+func Defaults() (*DefaultProvider, error) {
+	var err error
 	p := &DefaultProvider{}
+	p.config, err = config.NewConfig()
+	if err != nil {
+		return nil, err
+	}
 	p.logger = log.Default()
-	p.converter = converter.NewConverter(p.logger)
-	return p
+	p.converter = converter.NewConverter(p.logger, p.config)
+	return p, nil
 }
 
 type DefaultProvider struct {
+	config    *config.Config
 	logger    Logger
 	converter Converter
+}
+
+func (p *DefaultProvider) Config() *config.Config {
+	return p.config
 }
 
 func (p *DefaultProvider) Logger() Logger {
@@ -51,5 +63,9 @@ type ConverterProvider interface {
 }
 
 type Converter interface {
-	Convert(sourcePath string, newTargetExtension string) string
+	Convert(sourcePath string, newPath string) error
+}
+
+type ConfigProvider interface {
+	Config() *config.Config
 }
